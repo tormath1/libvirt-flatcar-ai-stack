@@ -81,3 +81,7 @@ ai-manager-dashboard:
 	kubectl apply -f ./manifests/manager-dashboard.yaml
 	# TODO: Expose this via Gateway API
 	kubectl port-forward -n airunway-system svc/airunway 3001:80
+
+.PHONY: ssh
+ssh:
+	ssh core@$$(tofu output -json | jq -r .control_plane_endpoint.value)
