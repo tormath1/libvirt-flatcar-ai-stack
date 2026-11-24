@@ -1,0 +1,3741 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kaito-workspace
+
+---
+# Source: workspace/charts/local-csi-driver/templates/manager-rbac.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-local-manager
+  namespace: 'kaito-workspace'
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    {}
+
+---
+# Source: workspace/charts/local-csi-driver/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: csi-local-node
+  namespace: 'kaito-workspace'
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    {}
+
+---
+# Source: workspace/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kaito-workspace-sa
+  namespace: kaito-workspace
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+
+---
+# Source: workspace/charts/local-csi-driver/templates/webhoot-cert.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: csi-local-webhook-cert
+  labels:
+    app.kubernetes.io/component: webhook
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+data:
+   tls.key: ""
+   tls.crt: ""
+   ca-cert.pem: ""
+
+---
+# Source: workspace/templates/secret-webhook-cert.yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: workspace-webhook-cert
+  namespace: kaito-workspace
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+data:
+  server-key.pem: ""
+  server-cert.pem: ""
+  ca-cert.pem: ""
+
+---
+# Source: workspace/templates/base-images-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kaito-base-images
+  namespace: kaito-workspace
+  labels:
+    {}
+data:
+  BaseImages: |
+    images:
+      - name: base
+        tag: 0.6.3
+        runtimeVersion:
+          vllm: 0.30.0
+          transformers: 5.15.0
+
+---
+# Source: workspace/templates/inference-params.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inference-params-template
+  namespace: kaito-workspace
+data:
+  inference_config.yaml: |
+    # Optional: CPU memory utilization for the vllm engine in kv cache offload mode. (default: 0.5, set to 0 to disable)
+    kv_cache_cpu_memory_utilization: 0.5
+
+    vllm:
+      cpu-offload-gb: 0
+
+      # gpu-memory-utilization: 0.9
+      # max-seq-len-to-capture: 8192
+      # num-scheduler-steps: 1
+      # enable-chunked-prefill: false
+      # max-model-len: 2048
+      # see https://docs.vllm.ai/en/stable/cli/serve/ for more options.
+---
+# Source: workspace/templates/knative-logging-configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kaito-logging-config
+  namespace: kaito-workspace
+  labels:
+    {}
+data:
+  loglevel.controller: "error"
+  loglevel.webhook: "error"
+  loglevel.autoscaler: "error"
+  loglevel.queueproxy: "error"
+  loglevel.activator: "error"
+  loglevel.hpaautoscaler: "error"
+  loglevel.certcontroller: "error"
+  loglevel.istiocontroller: "error"
+  zap-logger-config: |
+    {
+      "level": "error",
+      "development": false,
+      "outputPaths": ["stdout"],
+      "errorOutputPaths": ["stderr"],
+      "encoding": "json",
+      "encoderConfig": {
+        "timeKey": "ts",
+        "levelKey": "level",
+        "nameKey": "logger",
+        "callerKey": "caller",
+        "messageKey": "msg",
+        "stacktraceKey": "stacktrace",
+        "lineEnding": "",
+        "levelEncoder": "",
+        "timeEncoder": "iso8601",
+        "durationEncoder": "",
+        "callerEncoder": ""
+      }
+    }
+
+---
+# Source: workspace/templates/lora-params.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lora-params-template
+  namespace: kaito-workspace
+data:
+  training_config.yaml: |
+    training_config:
+      ModelConfig: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/model_doc/auto#transformers.AutoModelForCausalLM.from_pretrained
+        torch_dtype: "bfloat16"
+        local_files_only: true
+        device_map: "auto"
+        # chat_template: "/workspace/chat_templates/phi-3.jinja" # Commented out to use default template
+    
+      QuantizationConfig: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/main_classes/quantization#transformers.BitsAndBytesConfig
+        load_in_4bit: false
+    
+      LoraConfig: # Configurable Parameters: https://huggingface.co/docs/peft/v0.8.2/en/package_reference/lora#peft.LoraConfig
+        r: 8
+        lora_alpha: 8
+        lora_dropout: 0.0
+    
+      TrainingArguments: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/main_classes/trainer#transformers.TrainingArguments
+        output_dir: "/mnt/results"
+        # num_train_epochs: <Defaults to 3, adjustable>
+        ddp_find_unused_parameters: false # Default to false to prevent errors during distributed training
+        save_strategy: "no" # Default to no checkpoint saving
+        per_device_train_batch_size: 1
+    
+      DataCollator: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/main_classes/data_collator#transformers.DataCollatorForLanguageModeling
+        mlm: true # Default setting; included to show DataCollator can be updated.
+    
+      DatasetConfig: # Configurable Parameters: https://github.com/kaito-project/kaito/blob/main/presets/workspace/tuning/text-generation/cli.py#L44
+        shuffle_dataset: true
+        train_test_split: 1 # Default to using all data for fine-tuning due to strong pre-trained baseline and typically limited fine-tuning data
+        # Expected Dataset format:
+        # {"messages": [{"role": "system", "content": "Marv is a factual chatbot that is also sarcastic."}, {"role": "user", "content": "What's the capital of France?"}, {"role": "assistant", "content": "Paris, as if everyone doesn't know that already."}]}
+        # e.g. https://huggingface.co/datasets/philschmid/dolly-15k-oai-style
+
+---
+# Source: workspace/templates/qlora-params.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: qlora-params-template
+  namespace: kaito-workspace
+data:
+  training_config.yaml: |
+    training_config:
+      ModelConfig: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/model_doc/auto#transformers.AutoModelForCausalLM.from_pretrained
+        torch_dtype: "bfloat16"
+        local_files_only: true
+        device_map: "auto"
+        # chat_template: "/workspace/chat_templates/phi-3.jinja" # Commented out to use default template
+    
+      QuantizationConfig: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/main_classes/quantization#transformers.BitsAndBytesConfig
+        load_in_4bit: true
+        bnb_4bit_quant_type: "nf4"
+        bnb_4bit_compute_dtype: "bfloat16"
+        bnb_4bit_use_double_quant: true
+    
+      LoraConfig: # Configurable Parameters: https://huggingface.co/docs/peft/v0.8.2/en/package_reference/lora#peft.LoraConfig
+        r: 8
+        lora_alpha: 8
+        lora_dropout: 0.0
+    
+      TrainingArguments: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/main_classes/trainer#transformers.TrainingArguments
+        output_dir: "/mnt/results"
+        # num_train_epochs: <Defaults to 3, adjustable>
+        ddp_find_unused_parameters: false # Default to false to prevent errors during distributed training
+        save_strategy: "no" # Default to no checkpoint saving
+        per_device_train_batch_size: 1
+    
+      DataCollator: # Configurable Parameters: https://huggingface.co/docs/transformers/v4.40.2/en/main_classes/data_collator#transformers.DataCollatorForLanguageModeling
+        mlm: true # Default setting; included to show DataCollator can be updated.
+    
+      DatasetConfig: # Configurable Parameters: https://github.com/kaito-project/kaito/blob/main/presets/workspace/tuning/text-generation/cli.py#L44
+        shuffle_dataset: true
+        train_test_split: 1 # Default to using all data for fine-tuning due to strong pre-trained baseline and typically limited fine-tuning data
+        # Expected Dataset format:
+        # {"messages": [{"role": "system", "content": "Marv is a factual chatbot that is also sarcastic."}, {"role": "user", "content": "What's the capital of France?"}, {"role": "assistant", "content": "Paris, as if everyone doesn't know that already."}]}
+        # e.g. https://huggingface.co/datasets/philschmid/dolly-15k-oai-style
+
+---
+# Source: workspace/templates/local-csi-storageclass.yaml
+# notes: This CSI driver is compatible with various environments, including Azure and AWS,
+# ensuring broad interoperability without vendor lock-in.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: kaito-local-nvme-disk
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+provisioner: localdisk.csi.acstor.io
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+
+---
+# Source: workspace/templates/kaito.sh_inferencesets.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: inferencesets.kaito.sh
+spec:
+  group: kaito.sh
+  names:
+    categories:
+    - inferenceset
+    kind: InferenceSet
+    listKind: InferenceSetList
+    plural: inferencesets
+    shortNames:
+    - is
+    - isets
+    singular: inferenceset
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.replicas
+      name: Replicas
+      type: integer
+    - jsonPath: .status.readyReplicas
+      name: ReadyReplicas
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: InferenceSet is the Schema for the InferenceSet API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the desired state of InferenceSet
+            properties:
+              autoUpgrade:
+                description: |-
+                  AutoUpgrade configures automatic base image upgrade behavior.
+                  When enabled, the controller detects base image version mismatches
+                  after a controller upgrade and performs in-place rolling updates of
+                  Workspace StatefulSets.
+                properties:
+                  enabled:
+                    default: false
+                    description: |-
+                      Enabled controls whether the controller automatically upgrades
+                      Workspace replicas when a newer base image version is detected
+                      after a controller upgrade.
+                    type: boolean
+                  maintenanceWindow:
+                    description: |-
+                      MaintenanceWindow restricts when upgrades may be applied.
+                      If not specified, upgrades may be applied at any time.
+                    properties:
+                      duration:
+                        default: 4h
+                        description: |-
+                          Duration specifies how long the maintenance window stays open after
+                          each cron tick. If a rollout is still in progress when the window
+                          closes, the in-progress Workspace upgrade is allowed to complete
+                          (the controller will not start upgrading the next Workspace until the
+                          next window opens).
+                          Defaults to 4h.
+                        type: string
+                      schedule:
+                        description: |-
+                          Schedule is a cron expression (5-field, UTC) defining when upgrades
+                          are permitted to start. The window opens at each cron tick and stays
+                          open for Duration.
+                          Example: "0 2 * * 6" = every Saturday at 02:00 UTC.
+                        type: string
+                    required:
+                    - schedule
+                    type: object
+                  strategy:
+                    default: InPlace
+                    description: |-
+                      Strategy selects how Workspaces are replaced during an upgrade.
+                      "InPlace" (default) rolls the existing Workspace's StatefulSet, incurring
+                      downtime. "Surge" creates a new Workspace, waits for it to become
+                      ready, then deletes the old one, avoiding downtime.
+                    enum:
+                    - InPlace
+                    - Surge
+                    type: string
+                type: object
+              labelSelector:
+                description: workspace created by InferenceSet controller would use
+                  this label in resource.labelSelector
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              nodeCountLimit:
+                description: |-
+                  NodeCountLimit is the maximum number of GPU nodes that can be created for the InferenceSet.
+                  If not specified, there is no limit on the number of GPU nodes that can be created.
+                type: integer
+              replicas:
+                default: 1
+                description: Replicas is the desired number of workspaces to be created.
+                format: int32
+                minimum: 0
+                type: integer
+              template:
+                description: Template is the template used to create the InferenceSet.
+                properties:
+                  inference:
+                    properties:
+                      adapters:
+                        description: |-
+                          Adapters are integrated into the base model for inference.
+                          Users can specify multiple adapters for the model and the respective weight of using each of them.
+                        items:
+                          properties:
+                            source:
+                              description: Source describes where to obtain the adapter
+                                data.
+                              properties:
+                                image:
+                                  description: |-
+                                    The name of the image that contains the source data. The assumption is that the source data locates in the
+                                    `data` directory in the image.
+                                  type: string
+                                imagePullSecrets:
+                                  description: ImagePullSecrets is a list of secret
+                                    names in the same namespace used for pulling the
+                                    data image.
+                                  items:
+                                    type: string
+                                  type: array
+                                name:
+                                  description: |-
+                                    The name of the dataset. The same name will be used as a container name.
+                                    It must be a valid DNS subdomain value,
+                                  type: string
+                                urls:
+                                  description: URLs specifies the links to the public
+                                    data sources. E.g., files in a public github repository.
+                                  items:
+                                    type: string
+                                  type: array
+                                volumeSource:
+                                  description: The mounted volume that contains the
+                                    data.
+                                  x-kubernetes-preserve-unknown-fields: true
+                              type: object
+                            strength:
+                              description: |-
+                                Strength specifies the default multiplier for applying the adapter weights to the raw model weights.
+                                It is usually a float number between 0 and 1. It is defined as a string type to be language agnostic.
+                              type: string
+                          type: object
+                        type: array
+                      config:
+                        description: |-
+                          Config specifies the name of a custom ConfigMap that contains inference arguments.
+                          If specified, the ConfigMap must be in the same namespace as the Workspace custom resource.
+                        type: string
+                      preset:
+                        description: Preset describes the base model that will be
+                          deployed with preset configurations.
+                        properties:
+                          accessMode:
+                            default: public
+                            description: |-
+                              Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                              AccessMode specifies whether the containerized model image is accessible via public registry
+                              or private registry. This field defaults to "public" if not specified.
+                              If this field is "private", user needs to provide the private image information in PresetOptions.
+                            enum:
+                            - public
+                            - private
+                            type: string
+                          name:
+                            description: Name of the supported models with preset
+                              configurations.
+                            type: string
+                          presetOptions:
+                            properties:
+                              image:
+                                description: |-
+                                  Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                                  Image is the name of the containerized model image.
+                                type: string
+                              imagePullSecrets:
+                                description: |-
+                                  Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                                  ImagePullSecrets is a list of secret names in the same namespace used for pulling the model image.
+                                items:
+                                  type: string
+                                type: array
+                              modelAccessSecret:
+                                description: ModelAccessSecret is the name of the
+                                  secret that contains the huggingface access token.
+                                type: string
+                            type: object
+                        required:
+                        - name
+                        type: object
+                      template:
+                        description: |-
+                          Template specifies the Pod template used to run the inference service. Users can specify custom Pod settings
+                          if the preset configurations cannot meet the requirements. Note that if Preset is specified, Template should not
+                          be specified and vice versa.
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                  metadata:
+                    description: |-
+                      Standard object's metadata.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+                    x-kubernetes-preserve-unknown-fields: true
+                  resource:
+                    properties:
+                      instanceType:
+                        description: |-
+                          InstanceType specifies the GPU node SKU.
+                          This field is required when node auto-provisioning is enabled.
+                          This field must be empty when node auto-provisioning is disabled (BYO scenario).
+                        type: string
+                    type: object
+                required:
+                - inference
+                type: object
+              updateStrategy:
+                default:
+                  rollingUpdate:
+                    maxUnavailable: 1
+                  type: RollingUpdate
+                description: UpdateStrategy indicates the strategy to use to replace
+                  existing workspaces with new ones.
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - labelSelector
+            - template
+            type: object
+          status:
+            description: Status defines the observed state of InferenceSet
+            properties:
+              autoUpgrade:
+                description: AutoUpgrade reports the observed state of automatic base
+                  image upgrades.
+                properties:
+                  lastSuccessfulUpgradeTime:
+                    description: |-
+                      LastSuccessfulUpgradeTime is the timestamp of the last Workspace that
+                      successfully completed an auto-upgrade.
+                    format: date-time
+                    type: string
+                  numDriftedWorkspaces:
+                    description: |-
+                      NumDriftedWorkspaces is the number of Workspaces whose base image version
+                      differs from the controller's embedded version. Nil when autoUpgrade is
+                      disabled; 0 means all Workspaces are up-to-date.
+                    type: integer
+                type: object
+              conditions:
+                description: Conditions report the current conditions of the InferenceSet.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              performance:
+                description: Performance holds aggregated performance characteristics
+                  across all workspace replicas.
+                properties:
+                  metrics:
+                    additionalProperties:
+                      description: Metric holds an aggregated benchmark measurement
+                        across workspace replicas.
+                      properties:
+                        description:
+                          description: Description describes the benchmark type and
+                            load pattern, e.g. "stress/high-concurrency".
+                          type: string
+                        unit:
+                          description: Unit is the unit of the metric value (e.g.
+                            "tokens/min").
+                          type: string
+                        value:
+                          description: Value is the aggregated metric value, formatted
+                            as a string.
+                          type: string
+                      required:
+                      - description
+                      - value
+                      type: object
+                    description: Metrics is a map of metric name to Metric.
+                    type: object
+                type: object
+              readyReplicas:
+                description: ReadyReplicas is the number of workspaces that are in
+                  ready state.
+                type: integer
+              replicas:
+                description: Replicas is the total number of workspaces created by
+                  the InferenceSet.
+                type: integer
+              selector:
+                description: |-
+                  Selector is used to select the pods that provide metrics for making scaling action decisions.
+                  This field must be set when HPA and VPA is used for scaling.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: false
+    subresources:
+      scale:
+        labelSelectorPath: .status.selector
+        specReplicasPath: .spec.replicas
+        statusReplicasPath: .status.replicas
+      status: {}
+  - additionalPrinterColumns:
+    - jsonPath: .spec.replicas
+      name: Replicas
+      type: integer
+    - jsonPath: .status.readyReplicas
+      name: ReadyReplicas
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: InferenceSet is the Schema for the InferenceSet API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: Spec defines the desired state of InferenceSet
+            properties:
+              autoUpgrade:
+                description: |-
+                  AutoUpgrade configures automatic base image upgrade behavior.
+                  When enabled, the controller detects base image version mismatches
+                  after a controller upgrade and performs in-place rolling updates of
+                  Workspace StatefulSets.
+                properties:
+                  enabled:
+                    default: false
+                    description: |-
+                      Enabled controls whether the controller automatically upgrades
+                      Workspace replicas when a newer base image version is detected
+                      after a controller upgrade.
+                    type: boolean
+                  maintenanceWindow:
+                    description: |-
+                      MaintenanceWindow restricts when upgrades may be applied.
+                      If not specified, upgrades may be applied at any time.
+                    properties:
+                      duration:
+                        default: 4h
+                        description: |-
+                          Duration specifies how long the maintenance window stays open after
+                          each cron tick. If a rollout is still in progress when the window
+                          closes, the in-progress Workspace upgrade is allowed to complete
+                          (the controller will not start upgrading the next Workspace until the
+                          next window opens).
+                          Defaults to 4h.
+                        type: string
+                      schedule:
+                        description: |-
+                          Schedule is a cron expression (5-field, UTC) defining when upgrades
+                          are permitted to start. The window opens at each cron tick and stays
+                          open for Duration.
+                          Example: "0 2 * * 6" = every Saturday at 02:00 UTC.
+                        type: string
+                    required:
+                    - schedule
+                    type: object
+                  strategy:
+                    default: InPlace
+                    description: |-
+                      Strategy selects how Workspaces are replaced during an upgrade.
+                      "InPlace" (default) rolls the existing Workspace's StatefulSet, incurring
+                      downtime. "Surge" creates a new Workspace, waits for it to become
+                      ready, then deletes the old one, avoiding downtime.
+                    enum:
+                    - InPlace
+                    - Surge
+                    type: string
+                type: object
+              labelSelector:
+                description: |-
+                  Selector is a label query over the Workspaces managed by this InferenceSet. It must be
+                  non-empty on create, and its matchLabels must not conflict with template.metadata.labels;
+                  they are added to each child Workspace's labels. It does not select GPU nodes; use template.resource.labelSelector.
+                  For backward compatibility, it is inherited as the node selector with node
+                  auto-provisioning when template.resource.labelSelector is unset or empty.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              nodeCountLimit:
+                description: |-
+                  NodeCountLimit is the maximum number of GPU nodes that can be created for the InferenceSet.
+                  If not specified, there is no limit on the number of GPU nodes that can be created.
+                type: integer
+              replicas:
+                default: 1
+                description: Replicas is the desired number of workspaces to be created.
+                format: int32
+                minimum: 0
+                type: integer
+              template:
+                description: Template is the template used to create the InferenceSet.
+                properties:
+                  inference:
+                    properties:
+                      adapters:
+                        description: |-
+                          Adapters are integrated into the base model for inference.
+                          Users can specify multiple adapters for the model and the respective weight of using each of them.
+                        items:
+                          properties:
+                            source:
+                              description: Source describes where to obtain the adapter
+                                data.
+                              properties:
+                                image:
+                                  description: |-
+                                    The name of the image that contains the source data. The assumption is that the source data locates in the
+                                    `data` directory in the image.
+                                  type: string
+                                imagePullSecrets:
+                                  description: ImagePullSecrets is a list of secret
+                                    names in the same namespace used for pulling the
+                                    data image.
+                                  items:
+                                    type: string
+                                  type: array
+                                name:
+                                  description: |-
+                                    The name of the dataset. The same name will be used as a container name.
+                                    It must be a valid DNS subdomain value,
+                                  type: string
+                                urls:
+                                  description: URLs specifies the links to the public
+                                    data sources. E.g., files in a public github repository.
+                                  items:
+                                    type: string
+                                  type: array
+                                volumeSource:
+                                  description: The mounted volume that contains the
+                                    data.
+                                  x-kubernetes-preserve-unknown-fields: true
+                              type: object
+                            strength:
+                              description: |-
+                                Strength specifies the default multiplier for applying the adapter weights to the raw model weights.
+                                It is usually a float number between 0 and 1. It is defined as a string type to be language agnostic.
+                              type: string
+                          type: object
+                        type: array
+                      config:
+                        description: |-
+                          Config specifies the name of a custom ConfigMap that contains inference arguments.
+                          If specified, the ConfigMap must be in the same namespace as the Workspace custom resource.
+                        type: string
+                      preset:
+                        description: Preset describes the base model that will be
+                          deployed with preset configurations.
+                        properties:
+                          accessMode:
+                            default: public
+                            description: |-
+                              Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                              AccessMode specifies whether the containerized model image is accessible via public registry
+                              or private registry. This field defaults to "public" if not specified.
+                              If this field is "private", user needs to provide the private image information in PresetOptions.
+                            enum:
+                            - public
+                            - private
+                            type: string
+                          name:
+                            description: Name of the supported models with preset
+                              configurations.
+                            type: string
+                          presetOptions:
+                            properties:
+                              image:
+                                description: |-
+                                  Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                                  Image is the name of the containerized model image.
+                                type: string
+                              imagePullSecrets:
+                                description: |-
+                                  Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                                  ImagePullSecrets is a list of secret names in the same namespace used for pulling the model image.
+                                items:
+                                  type: string
+                                type: array
+                              modelAccessSecret:
+                                description: ModelAccessSecret is the name of the
+                                  secret that contains the huggingface access token.
+                                type: string
+                            type: object
+                        required:
+                        - name
+                        type: object
+                      template:
+                        description: |-
+                          Template specifies the Pod template used to run the inference service. Users can specify custom Pod settings
+                          if the preset configurations cannot meet the requirements. Note that if Preset is specified, Template should not
+                          be specified and vice versa.
+                        x-kubernetes-preserve-unknown-fields: true
+                    type: object
+                  metadata:
+                    description: |-
+                      Standard object's metadata.
+                      More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#metadata
+                    x-kubernetes-preserve-unknown-fields: true
+                  resource:
+                    properties:
+                      instanceType:
+                        description: |-
+                          InstanceType specifies the GPU node SKU.
+                          Required when node auto-provisioning is enabled. Optional for BYO nodes, where it
+                          restricts the GPU nodes to those labeled node.kubernetes.io/instance-type=<instanceType>.
+                        type: string
+                      labelSelector:
+                        description: |-
+                          LabelSelector specifies the required labels for the GPU nodes and is copied into
+                          resource.labelSelector of each child Workspace. With BYO nodes, leave it unset or
+                          empty ({}), together with instanceType, to auto-select the GPU SKU. With node
+                          auto-provisioning, an unset or empty value inherits spec.labelSelector.
+                        properties:
+                          matchExpressions:
+                            description: matchExpressions is a list of label selector
+                              requirements. The requirements are ANDed.
+                            items:
+                              description: |-
+                                A label selector requirement is a selector that contains values, a key, and an operator that
+                                relates the key and values.
+                              properties:
+                                key:
+                                  description: key is the label key that the selector
+                                    applies to.
+                                  type: string
+                                operator:
+                                  description: |-
+                                    operator represents a key's relationship to a set of values.
+                                    Valid operators are In, NotIn, Exists and DoesNotExist.
+                                  type: string
+                                values:
+                                  description: |-
+                                    values is an array of string values. If the operator is In or NotIn,
+                                    the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                                    the values array must be empty. This array is replaced during a strategic
+                                    merge patch.
+                                  items:
+                                    type: string
+                                  type: array
+                                  x-kubernetes-list-type: atomic
+                              required:
+                              - key
+                              - operator
+                              type: object
+                            type: array
+                            x-kubernetes-list-type: atomic
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            description: |-
+                              matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                              map is equivalent to an element of matchExpressions, whose key field is "key", the
+                              operator is "In", and the values array contains only "value". The requirements are ANDed.
+                            type: object
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      partition:
+                        description: |-
+                          Partition specifies GPU partitioning applied to each replica. When set, each
+                          replica is scheduled on a GPU partition (slice) instead of a full GPU.
+                          Requires the enableMIG feature gate and BYO nodes.
+                          Propagated verbatim to each child Workspace.
+                        properties:
+                          count:
+                            description: |-
+                              Count is the number of whole GPUs to allocate to the workload. Required and
+                              used only when Mode is "accelerator"; must be >= 1. Not valid for "mig".
+                            minimum: 1
+                            type: integer
+                          mode:
+                            allOf:
+                            - enum:
+                              - mig
+                              - accelerator
+                            - enum:
+                              - mig
+                              - accelerator
+                            description: |-
+                              Mode selects the GPU partitioning technology: "mig" (NVIDIA Multi-Instance
+                              GPU) or "accelerator" (multiple whole GPUs).
+                            type: string
+                          profile:
+                            description: |-
+                              Profile is the partition profile, interpreted according to Mode. For MIG this
+                              is a profile name like "1g.10gb", "2g.20gb", "3g.40gb". Each workload is
+                              scheduled on exactly one partition; tensor parallelism across partitions is
+                              not supported. Use multiple Workspaces or an InferenceSet to run replicas.
+                            type: string
+                        required:
+                        - mode
+                        type: object
+                    type: object
+                required:
+                - inference
+                type: object
+              updateStrategy:
+                default:
+                  rollingUpdate:
+                    maxUnavailable: 1
+                  type: RollingUpdate
+                description: UpdateStrategy indicates the strategy to use to replace
+                  existing workspaces with new ones.
+                x-kubernetes-preserve-unknown-fields: true
+            required:
+            - labelSelector
+            - template
+            type: object
+          status:
+            description: Status defines the observed state of InferenceSet
+            properties:
+              autoUpgrade:
+                description: AutoUpgrade reports the observed state of automatic base
+                  image upgrades.
+                properties:
+                  lastSuccessfulUpgradeTime:
+                    description: |-
+                      LastSuccessfulUpgradeTime is the timestamp of the last Workspace that
+                      successfully completed an auto-upgrade.
+                    format: date-time
+                    type: string
+                  numDriftedWorkspaces:
+                    description: |-
+                      NumDriftedWorkspaces is the number of Workspaces whose base image version
+                      differs from the controller's embedded version. Nil when autoUpgrade is
+                      disabled; 0 means all Workspaces are up-to-date.
+                    type: integer
+                type: object
+              conditions:
+                description: Conditions report the current conditions of the InferenceSet.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              maxModelLen:
+                description: MaxModelLen is set when all ready workspaces report the
+                  same runtime limit.
+                format: int32
+                type: integer
+              performance:
+                description: Performance holds aggregated performance characteristics
+                  across all workspace replicas.
+                properties:
+                  metrics:
+                    additionalProperties:
+                      description: Metric holds a single benchmark measurement along
+                        with its description and config.
+                      properties:
+                        config:
+                          additionalProperties:
+                            type: string
+                          description: Config holds the benchmark parameters used
+                            to produce this metric as free-form key/value pairs.
+                          type: object
+                        description:
+                          description: Description describes the benchmark type and
+                            load pattern, e.g. "stress/high-concurrency".
+                          type: string
+                        unit:
+                          description: Unit is the unit of the metric value (e.g.
+                            "tokens/min").
+                          type: string
+                        value:
+                          description: Value is the measured metric value, formatted
+                            as a string.
+                          type: string
+                      required:
+                      - description
+                      - value
+                      type: object
+                    description: Metrics is a map of metric name to Metric.
+                    type: object
+                type: object
+              readyReplicas:
+                description: ReadyReplicas is the number of workspaces that are in
+                  ready state.
+                type: integer
+              replicas:
+                description: Replicas is the total number of workspaces created by
+                  the InferenceSet.
+                type: integer
+              resolvedModel:
+                description: |-
+                  ResolvedModel records what a bring-your-own deployment actually resolved to.
+                  It is owned by the controller and set only for the "custom" preset.
+                properties:
+                  configSHA256:
+                    description: |-
+                      ConfigSHA256 is the SHA-256 of the model configuration this deployment was
+                      resolved from. The serving container verifies the model bundle against it,
+                      and a replaced configuration whose digest no longer matches is reported
+                      rather than adopted.
+                    type: string
+                  sizeBytes:
+                    description: |-
+                      SizeBytes is the declared on-disk size of the weight bundle this
+                      deployment was sized from. It is recorded separately from ConfigSHA256
+                      because that digest covers the model configuration only, so a replaced
+                      configuration that changes the size but not config.json would otherwise
+                      go unnoticed.
+                    format: int64
+                    type: integer
+                type: object
+              selector:
+                description: |-
+                  Selector is used to select the pods that provide metrics for making scaling action decisions.
+                  This field must be set when HPA and VPA is used for scaling.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      scale:
+        labelSelectorPath: .status.selector
+        specReplicasPath: .spec.replicas
+        statusReplicasPath: .status.replicas
+      status: {}
+
+---
+# Source: workspace/templates/kaito.sh_modelmirrors.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: modelmirrors.kaito.sh
+spec:
+  group: kaito.sh
+  names:
+    kind: ModelMirror
+    listKind: ModelMirrorList
+    plural: modelmirrors
+    singular: modelmirror
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.source.modelID
+      name: Model
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          ModelMirror represents a cached copy of a model from a remote registry. The PVC and
+          download Job are created in the ModelMirror's own namespace.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              mode:
+                default: Managed
+                description: |-
+                  Mode selects how the model weights are made available:
+                    - "Managed" (default): the controller downloads the model to a PVC via a download Job.
+                    - "Static": the model weights already exist in a pre-existing (BYO) storage location;
+                      the controller creates no PVC and no download Job, and the weights location is
+                      reported in status.modelPath.
+                enum:
+                - Managed
+                - Static
+                type: string
+              serviceAccountName:
+                description: |-
+                  ServiceAccountName is the ServiceAccount used by the workload identity that the download
+                  Job pod runs as. It is resolved in the ModelMirror's namespace. Empty (the default) runs
+                  the Job under the namespace default ServiceAccount.
+                type: string
+              source:
+                description: |-
+                  Source describes where to download the model weights from. Required for a Managed
+                  mirror; omit entirely for a Static mirror.
+                properties:
+                  accessSecretName:
+                    description: |-
+                      AccessSecretName is the name of a secret in the ModelMirror's namespace holding the
+                      registry credentials under the HF_TOKEN key.
+                    type: string
+                  modelID:
+                    description: ModelID is the model identifier (e.g. "Qwen/Qwen2.5-Coder-32B-Instruct").
+                    type: string
+                  registry:
+                    description: Registry is the source registry to download the model
+                      weights from.
+                    enum:
+                    - huggingface
+                    type: string
+                required:
+                - modelID
+                - registry
+                type: object
+              storage:
+                description: |-
+                  Storage describes the PVC to download the model weights into. Required for a Managed
+                  mirror; omit entirely for a Static mirror.
+                properties:
+                  size:
+                    description: Size is the PVC size for managed mirrors.
+                    type: string
+                  storageClassName:
+                    description: StorageClassName is the StorageClass to use for the
+                      PVC.
+                    type: string
+                required:
+                - size
+                type: object
+            type: object
+          status:
+            properties:
+              conditions:
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              download:
+                description: |-
+                  Download reports in-progress download metrics. Both fields are 0 once the
+                  download has succeeded, since they describe only the in-progress state.
+                  On terminal failure they retain their last observed values; the failure
+                  itself is reported through the Ready condition.
+                properties:
+                  remainingSeconds:
+                    description: |-
+                      RemainingSeconds estimates the time to completion. 0 once the download has
+                      finished; -1 when it cannot be computed, which happens when the total size
+                      is unknown or the measured speed is 0.
+                    format: int64
+                    type: integer
+                  speedBytesPerSecond:
+                    description: |-
+                      SpeedBytesPerSecond is the average download speed from the start of the
+                      download until now. 0 once the download has finished.
+                    format: int64
+                    type: integer
+                required:
+                - remainingSeconds
+                - speedBytesPerSecond
+                type: object
+              failureMessage:
+                type: string
+              lastDownloadTime:
+                format: date-time
+                type: string
+              modelPath:
+                type: string
+              phase:
+                enum:
+                - Pending
+                - Ready
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+
+---
+# Source: workspace/templates/kaito.sh_workspaces.yaml
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: workspaces.kaito.sh
+spec:
+  group: kaito.sh
+  names:
+    categories:
+    - workspace
+    kind: Workspace
+    listKind: WorkspaceList
+    plural: workspaces
+    shortNames:
+    - wk
+    - wks
+    singular: workspace
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .resource.instanceType
+      name: Instance
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="ResourceReady")].status
+      name: ResourceReady
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="InferenceReady")].status
+      name: InferenceReady
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="JobStarted")].status
+      name: JobStarted
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="WorkspaceSucceeded")].status
+      name: WorkspaceSucceeded
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Workspace is the Schema for the workspaces API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          inference:
+            properties:
+              adapters:
+                description: |-
+                  Adapters are integrated into the base model for inference.
+                  Users can specify multiple adapters for the model and the respective weight of using each of them.
+                items:
+                  properties:
+                    source:
+                      description: Source describes where to obtain the adapter data.
+                      properties:
+                        image:
+                          description: |-
+                            The name of the image that contains the source data. The assumption is that the source data locates in the
+                            `data` directory in the image.
+                          type: string
+                        imagePullSecrets:
+                          description: ImagePullSecrets is a list of secret names
+                            in the same namespace used for pulling the data image.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          description: |-
+                            The name of the dataset. The same name will be used as a container name.
+                            It must be a valid DNS subdomain value,
+                          type: string
+                        urls:
+                          description: URLs specifies the links to the public data
+                            sources. E.g., files in a public github repository.
+                          items:
+                            type: string
+                          type: array
+                        volumeSource:
+                          description: The mounted volume that contains the data.
+                          x-kubernetes-preserve-unknown-fields: true
+                      type: object
+                    strength:
+                      description: |-
+                        Strength specifies the default multiplier for applying the adapter weights to the raw model weights.
+                        It is usually a float number between 0 and 1. It is defined as a string type to be language agnostic.
+                      type: string
+                  type: object
+                type: array
+              config:
+                description: |-
+                  Config specifies the name of a custom ConfigMap that contains inference arguments.
+                  If specified, the ConfigMap must be in the same namespace as the Workspace custom resource.
+                type: string
+              preset:
+                description: Preset describes the base model that will be deployed
+                  with preset configurations.
+                properties:
+                  accessMode:
+                    default: public
+                    description: |-
+                      AccessMode specifies whether the containerized model image is accessible via public registry
+                      or private registry. This field defaults to "public" if not specified.
+                      If this field is "private", user needs to provide the private image information in PresetOptions.
+                    enum:
+                    - public
+                    - private
+                    type: string
+                  name:
+                    description: Name of the supported models with preset configurations.
+                    type: string
+                  presetOptions:
+                    properties:
+                      image:
+                        description: Image is the name of the containerized model
+                          image.
+                        type: string
+                      imagePullSecrets:
+                        description: ImagePullSecrets is a list of secret names in
+                          the same namespace used for pulling the model image.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                required:
+                - name
+                type: object
+              template:
+                description: |-
+                  Template specifies the Pod template used to run the inference service. Users can specify custom Pod settings
+                  if the preset configurations cannot meet the requirements. Note that if Preset is specified, Template should not
+                  be specified and vice versa.
+                x-kubernetes-preserve-unknown-fields: true
+            type: object
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          resource:
+            description: |-
+              ResourceSpec describes the resource requirement of running the workload.
+              If the number of nodes in the cluster that meet the InstanceType and
+              LabelSelector requirements is small than the Count, controller
+              will provision new nodes before deploying the workload.
+              The final list of nodes used to run the workload is presented in workspace Status.
+            properties:
+              count:
+                default: 1
+                description: Count is the required number of GPU nodes.
+                type: integer
+              instanceType:
+                default: Standard_NC24ads_A100_v4
+                description: |-
+                  InstanceType specifies the GPU node SKU.
+                  This field defaults to "Standard_NC24ads_A100_v4" if not specified.
+                type: string
+              labelSelector:
+                description: LabelSelector specifies the required labels for the GPU
+                  nodes.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              preferredNodes:
+                description: |-
+                  PreferredNodes is an optional node list specified by the user.
+                  If a node in the list does not have the required labels, it will be ignored.
+                items:
+                  type: string
+                type: array
+            required:
+            - labelSelector
+            type: object
+          status:
+            description: WorkspaceStatus defines the observed state of Workspace
+            properties:
+              conditions:
+                description: Conditions report the current conditions of the workspace.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              workerNodes:
+                description: WorkerNodes is the list of nodes chosen to run the workload
+                  based on the workspace resource requirement.
+                items:
+                  type: string
+                type: array
+            type: object
+          tuning:
+            properties:
+              config:
+                description: |-
+                  Config specifies the name of a custom ConfigMap that contains tuning arguments.
+                  If specified, the ConfigMap must be in the same namespace as the Workspace custom resource.
+                  If not specified, a default Config is used based on the specified tuning method.
+                type: string
+              input:
+                description: Input describes the input used by the tuning method.
+                properties:
+                  image:
+                    description: |-
+                      The name of the image that contains the source data. The assumption is that the source data locates in the
+                      `data` directory in the image.
+                    type: string
+                  imagePullSecrets:
+                    description: ImagePullSecrets is a list of secret names in the
+                      same namespace used for pulling the data image.
+                    items:
+                      type: string
+                    type: array
+                  name:
+                    description: |-
+                      The name of the dataset. The same name will be used as a container name.
+                      It must be a valid DNS subdomain value,
+                    type: string
+                  urls:
+                    description: URLs specifies the links to the public data sources.
+                      E.g., files in a public github repository.
+                    items:
+                      type: string
+                    type: array
+                  volumeSource:
+                    description: The mounted volume that contains the data.
+                    x-kubernetes-preserve-unknown-fields: true
+                type: object
+              method:
+                description: Method specifies the Parameter-Efficient Fine-Tuning(PEFT)
+                  method, such as lora, qlora, used for the tuning.
+                type: string
+              output:
+                description: Output specified where to store the tuning output.
+                properties:
+                  image:
+                    description: Name of the image where the output data is pushed
+                      to.
+                    type: string
+                  imagePushSecret:
+                    description: |-
+                      ImagePushSecret is the name of the secret in the same namespace that contains the authentication
+                      information that is needed for running `docker push`.
+                    type: string
+                  volumeSource:
+                    description: The mounted volume that is used to save the output
+                      data.
+                    x-kubernetes-preserve-unknown-fields: true
+                type: object
+              preset:
+                description: Preset describes which model to load for tuning.
+                properties:
+                  accessMode:
+                    default: public
+                    description: |-
+                      AccessMode specifies whether the containerized model image is accessible via public registry
+                      or private registry. This field defaults to "public" if not specified.
+                      If this field is "private", user needs to provide the private image information in PresetOptions.
+                    enum:
+                    - public
+                    - private
+                    type: string
+                  name:
+                    description: Name of the supported models with preset configurations.
+                    type: string
+                  presetOptions:
+                    properties:
+                      image:
+                        description: Image is the name of the containerized model
+                          image.
+                        type: string
+                      imagePullSecrets:
+                        description: ImagePullSecrets is a list of secret names in
+                          the same namespace used for pulling the model image.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                required:
+                - name
+                type: object
+            required:
+            - input
+            - output
+            type: object
+        type: object
+    served: true
+    storage: false
+    subresources:
+      status: {}
+  - additionalPrinterColumns:
+    - jsonPath: .resource.instanceType
+      name: Instance
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="ResourceReady")].status
+      name: ResourceReady
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="InferenceReady")].status
+      name: InferenceReady
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="JobStarted")].status
+      name: JobStarted
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="WorkspaceSucceeded")].status
+      name: WorkspaceSucceeded
+      type: string
+    - jsonPath: .status.targetNodeCount
+      name: TargetNodeCount
+      type: integer
+    - jsonPath: .status.state
+      name: State
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1beta1
+    schema:
+      openAPIV3Schema:
+        description: Workspace is the Schema for the workspaces API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          inference:
+            properties:
+              adapters:
+                description: |-
+                  Adapters are integrated into the base model for inference.
+                  Users can specify multiple adapters for the model and the respective weight of using each of them.
+                items:
+                  properties:
+                    source:
+                      description: Source describes where to obtain the adapter data.
+                      properties:
+                        image:
+                          description: |-
+                            The name of the image that contains the source data. The assumption is that the source data locates in the
+                            `data` directory in the image.
+                          type: string
+                        imagePullSecrets:
+                          description: ImagePullSecrets is a list of secret names
+                            in the same namespace used for pulling the data image.
+                          items:
+                            type: string
+                          type: array
+                        name:
+                          description: |-
+                            The name of the dataset. The same name will be used as a container name.
+                            It must be a valid DNS subdomain value,
+                          type: string
+                        urls:
+                          description: URLs specifies the links to the public data
+                            sources. E.g., files in a public github repository.
+                          items:
+                            type: string
+                          type: array
+                        volumeSource:
+                          description: The mounted volume that contains the data.
+                          x-kubernetes-preserve-unknown-fields: true
+                      type: object
+                    strength:
+                      description: |-
+                        Strength specifies the default multiplier for applying the adapter weights to the raw model weights.
+                        It is usually a float number between 0 and 1. It is defined as a string type to be language agnostic.
+                      type: string
+                  type: object
+                type: array
+              config:
+                description: |-
+                  Config specifies the name of a custom ConfigMap that contains inference arguments.
+                  If specified, the ConfigMap must be in the same namespace as the Workspace custom resource.
+                type: string
+              preset:
+                description: Preset describes the base model that will be deployed
+                  with preset configurations.
+                properties:
+                  accessMode:
+                    default: public
+                    description: |-
+                      Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                      AccessMode specifies whether the containerized model image is accessible via public registry
+                      or private registry. This field defaults to "public" if not specified.
+                      If this field is "private", user needs to provide the private image information in PresetOptions.
+                    enum:
+                    - public
+                    - private
+                    type: string
+                  name:
+                    description: Name of the supported models with preset configurations.
+                    type: string
+                  presetOptions:
+                    properties:
+                      image:
+                        description: |-
+                          Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                          Image is the name of the containerized model image.
+                        type: string
+                      imagePullSecrets:
+                        description: |-
+                          Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                          ImagePullSecrets is a list of secret names in the same namespace used for pulling the model image.
+                        items:
+                          type: string
+                        type: array
+                      modelAccessSecret:
+                        description: ModelAccessSecret is the name of the secret that
+                          contains the huggingface access token.
+                        type: string
+                    type: object
+                required:
+                - name
+                type: object
+              template:
+                description: |-
+                  Template specifies the Pod template used to run the inference service. Users can specify custom Pod settings
+                  if the preset configurations cannot meet the requirements. Note that if Preset is specified, Template should not
+                  be specified and vice versa.
+                x-kubernetes-preserve-unknown-fields: true
+            type: object
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          resource:
+            description: |-
+              ResourceSpec describes the resource requirement of running the workload.
+              If the number of nodes in the cluster that meet the InstanceType and
+              LabelSelector requirements is small than the Count, controller
+              will provision new nodes before deploying the workload.
+              The final list of nodes used to run the workload is presented in workspace Status.
+            properties:
+              count:
+                default: 1
+                description: |-
+                  Deprecated: Count is deprecated in v1beta1 and will be removed in a future version.
+                  Count is the required number of GPU nodes.
+                type: integer
+              instanceType:
+                description: |-
+                  InstanceType specifies the GPU node SKU.
+                  Required when node auto-provisioning is enabled. Optional for BYO nodes, where it
+                  restricts the GPU nodes to those labeled node.kubernetes.io/instance-type=<instanceType>.
+                type: string
+              labelSelector:
+                description: |-
+                  LabelSelector specifies the required labels for the GPU nodes. Leave it unset or empty ({}),
+                  together with instanceType, to let BYO mode auto-select the GPU SKU.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              partition:
+                description: |-
+                  Partition specifies GPU partitioning for the workload. When set, the workload
+                  is scheduled on a GPU partition (slice) instead of a full GPU.
+                  Requires the enableMIG feature gate and BYO nodes.
+                properties:
+                  count:
+                    description: |-
+                      Count is the number of whole GPUs to allocate to the workload. Required and
+                      used only when Mode is "accelerator"; must be >= 1. Not valid for "mig".
+                    minimum: 1
+                    type: integer
+                  mode:
+                    allOf:
+                    - enum:
+                      - mig
+                      - accelerator
+                    - enum:
+                      - mig
+                      - accelerator
+                    description: |-
+                      Mode selects the GPU partitioning technology: "mig" (NVIDIA Multi-Instance
+                      GPU) or "accelerator" (multiple whole GPUs).
+                    type: string
+                  profile:
+                    description: |-
+                      Profile is the partition profile, interpreted according to Mode. For MIG this
+                      is a profile name like "1g.10gb", "2g.20gb", "3g.40gb". Each workload is
+                      scheduled on exactly one partition; tensor parallelism across partitions is
+                      not supported. Use multiple Workspaces or an InferenceSet to run replicas.
+                    type: string
+                required:
+                - mode
+                type: object
+              preferredNodes:
+                description: |-
+                  Deprecated: PreferredNodes is deprecated in v1beta1 and will be removed in a future version.
+                  If a node in the list does not have the required labels, it will be ignored.
+                  The controller will use the `InstanceType` to create the remaining nodes.
+                items:
+                  type: string
+                type: array
+            type: object
+          status:
+            description: WorkspaceStatus defines the observed state of Workspace
+            properties:
+              conditions:
+                description: Conditions report the current conditions of the workspace.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              maxModelLen:
+                description: |-
+                  MaxModelLen is the maximum context length reported by the inference runtime.
+                  It may be lower than the configured model context length after vLLM memory profiling.
+                format: int32
+                type: integer
+              performance:
+                description: |-
+                  Performance holds the metrics from the post-load inference benchmark.
+                  Populated by default; omitted when kaito.sh/disable-benchmark is set to "true".
+                properties:
+                  metrics:
+                    additionalProperties:
+                      description: Metric holds a single benchmark measurement along
+                        with its description and config.
+                      properties:
+                        config:
+                          additionalProperties:
+                            type: string
+                          description: Config holds the benchmark parameters used
+                            to produce this metric as free-form key/value pairs.
+                          type: object
+                        description:
+                          description: Description describes the benchmark type and
+                            load pattern, e.g. "stress/high-concurrency".
+                          type: string
+                        unit:
+                          description: Unit is the unit of the metric value (e.g.
+                            "tokens/min").
+                          type: string
+                        value:
+                          description: Value is the measured metric value, formatted
+                            as a string.
+                          type: string
+                      required:
+                      - description
+                      - value
+                      type: object
+                    description: Metrics is a map of metric name to Metric.
+                    type: object
+                type: object
+              resolvedModel:
+                description: |-
+                  ResolvedModel records what a bring-your-own deployment actually resolved to.
+                  It is owned by the controller and set only for the "custom" preset.
+                properties:
+                  configSHA256:
+                    description: |-
+                      ConfigSHA256 is the SHA-256 of the model configuration this deployment was
+                      resolved from. The serving container verifies the model bundle against it,
+                      and a replaced configuration whose digest no longer matches is reported
+                      rather than adopted.
+                    type: string
+                  sizeBytes:
+                    description: |-
+                      SizeBytes is the declared on-disk size of the weight bundle this
+                      deployment was sized from. It is recorded separately from ConfigSHA256
+                      because that digest covers the model configuration only, so a replaced
+                      configuration that changes the size but not config.json would otherwise
+                      go unnoticed.
+                    format: int64
+                    type: integer
+                type: object
+              state:
+                description: State represents the current high-level state of the
+                  workspace.
+                type: string
+              targetNodeCount:
+                description: |-
+                  TargetNodeCount is used for recording the desired number of gpu nodes that needed for the workspace.
+                  This field remains immutable after being set by NodesEstimator.
+                format: int32
+                type: integer
+              workerNodes:
+                description: WorkerNodes is the list of nodes chosen to run the workload
+                  based on the workspace resource requirement.
+                items:
+                  type: string
+                type: array
+            type: object
+          tuning:
+            properties:
+              config:
+                description: |-
+                  Config specifies the name of a custom ConfigMap that contains tuning arguments.
+                  If specified, the ConfigMap must be in the same namespace as the Workspace custom resource.
+                  If not specified, a default Config is used based on the specified tuning method.
+                type: string
+              input:
+                description: Input describes the input used by the tuning method.
+                properties:
+                  image:
+                    description: |-
+                      The name of the image that contains the source data. The assumption is that the source data locates in the
+                      `data` directory in the image.
+                    type: string
+                  imagePullSecrets:
+                    description: ImagePullSecrets is a list of secret names in the
+                      same namespace used for pulling the data image.
+                    items:
+                      type: string
+                    type: array
+                  name:
+                    description: |-
+                      The name of the dataset. The same name will be used as a container name.
+                      It must be a valid DNS subdomain value,
+                    type: string
+                  urls:
+                    description: URLs specifies the links to the public data sources.
+                      E.g., files in a public github repository.
+                    items:
+                      type: string
+                    type: array
+                  volumeSource:
+                    description: The mounted volume that contains the data.
+                    x-kubernetes-preserve-unknown-fields: true
+                type: object
+              method:
+                description: Method specifies the Parameter-Efficient Fine-Tuning(PEFT)
+                  method, such as lora, qlora, used for the tuning.
+                type: string
+              output:
+                description: Output specified where to store the tuning output.
+                properties:
+                  image:
+                    description: Name of the image where the output data is pushed
+                      to.
+                    type: string
+                  imagePushSecret:
+                    description: |-
+                      ImagePushSecret is the name of the secret in the same namespace that contains the authentication
+                      information that is needed for running `docker push`.
+                    type: string
+                  volumeSource:
+                    description: The mounted volume that is used to save the output
+                      data.
+                    x-kubernetes-preserve-unknown-fields: true
+                type: object
+              preset:
+                description: Preset describes which model to load for tuning.
+                properties:
+                  accessMode:
+                    default: public
+                    description: |-
+                      Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                      AccessMode specifies whether the containerized model image is accessible via public registry
+                      or private registry. This field defaults to "public" if not specified.
+                      If this field is "private", user needs to provide the private image information in PresetOptions.
+                    enum:
+                    - public
+                    - private
+                    type: string
+                  name:
+                    description: Name of the supported models with preset configurations.
+                    type: string
+                  presetOptions:
+                    properties:
+                      image:
+                        description: |-
+                          Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                          Image is the name of the containerized model image.
+                        type: string
+                      imagePullSecrets:
+                        description: |-
+                          Deprecated: This field is deprecated in v1beta1 and will be removed in a future version.
+                          ImagePullSecrets is a list of secret names in the same namespace used for pulling the model image.
+                        items:
+                          type: string
+                        type: array
+                      modelAccessSecret:
+                        description: ModelAccessSecret is the name of the secret that
+                          contains the huggingface access token.
+                        type: string
+                    type: object
+                required:
+                - name
+                type: object
+            required:
+            - input
+            - output
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}
+
+---
+# Source: workspace/charts/local-csi-driver/templates/manager-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: csi-local-manager
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - validatingwebhookconfigurations
+  - mutatingwebhookconfigurations
+  verbs:
+  - get
+  - list
+  - watch
+  - update
+  - patch
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - get
+  - list
+  - watch
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+
+---
+# Source: workspace/charts/local-csi-driver/templates/node-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: csi-local-node-role
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims/status
+  verbs:
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  - extensions
+  resources:
+  - daemonsets
+  - replicasets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - csidrivers
+  - csistoragecapacities
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - csinodes
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - volumeattachments
+  - volumeattachments/status
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+
+---
+# Source: workspace/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kaito-workspace-clusterrole
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: ["kaito.sh"]
+    resources: ["workspaces"]
+    verbs: ["update", "patch","get","list","watch"]
+  - apiGroups: ["kaito.sh"]
+    resources: ["workspaces/status"]
+    verbs: ["update", "patch","get","list","watch"]
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces"]
+    verbs: ["get","list","watch","update", "patch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get","list","watch","create", "delete", "update", "patch"]
+  - apiGroups: [ "" ]
+    resources: [ "pods"]
+    verbs: ["get","list","watch","create", "update", "patch" ]
+  - apiGroups: [ "" ]
+    resources: [ "pods/log" ]
+    verbs: ["get"]
+  - apiGroups: [ "" ]
+    resources: [ "pods/proxy" ]
+    verbs: ["get"]
+  - apiGroups: [ "" ]
+    resources: [ "configmaps" ]
+    verbs: [ "get","list","watch","create", "delete", "update", "patch" ]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get","list","watch","update", "patch"]
+  - apiGroups: [ "apps" ]
+    resources: ["deployments" ]
+    verbs: ["get","list","watch","create", "delete","update", "patch"]
+  - apiGroups: [ "apps" ]
+    resources: ["controllerrevisions" ]
+    verbs: [ "get","list","watch","create", "delete","update", "patch"]
+  - apiGroups: [ "apps" ]
+    resources: [ "statefulsets" ]
+    verbs: [ "get","list","watch","create", "delete","update", "patch" ]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list"]
+  - apiGroups: ["karpenter.sh"]
+    resources: ["machines", "machines/status", "nodeclaims", "nodeclaims/status"]
+    verbs: ["get","list","watch","create", "delete", "update", "patch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["get","list","watch"]
+  - apiGroups: [ "batch" ]
+    resources: [ "jobs" ]
+    verbs: [ "get", "list", "watch", "create", "delete","update", "patch" ]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["update"]
+    resourceNames: ["validation.workspace.kaito.sh"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    # list surfaces the provisioning failure Events of NodeClaims in Workspace status.
+    verbs: ["create", "patch", "update", "list"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+
+---
+# Source: workspace/templates/inferenceset_clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kaito-workspace-inferenceset-clusterrole
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: ["kaito.sh"]
+    resources: ["workspaces"]
+    verbs: ["update", "patch","get","list","watch", "create", "delete"]
+  - apiGroups: ["kaito.sh"]
+    resources: ["workspaces/status"]
+    verbs: ["update", "patch","get","list","watch"]
+  - apiGroups: ["kaito.sh"]
+    resources: ["inferencesets"]
+    verbs: ["update", "patch","get","list","watch","create","delete"]
+  - apiGroups: ["kaito.sh"]
+    resources: ["inferencesets/status"]
+    verbs: ["update", "patch","get","list","watch"]
+  - apiGroups: [ "apps" ]
+    resources: ["controllerrevisions" ]
+    verbs: [ "get","list","watch","create", "delete","update", "patch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["get","list","watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["update"]
+    resourceNames: ["validation.inferenceset.kaito.sh"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+---
+# Source: workspace/charts/local-csi-driver/templates/manager-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: csi-local-manager
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: csi-local-manager
+subjects:
+- kind: ServiceAccount
+  name: csi-local-manager
+  namespace: kaito-workspace
+
+---
+# Source: workspace/charts/local-csi-driver/templates/node-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: csi-local-node-binding
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: csi-local-node-role
+subjects:
+- kind: ServiceAccount
+  name: csi-local-node
+  namespace: 'kaito-workspace'
+
+---
+# Source: workspace/templates/clusterrole_binding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kaito-workspace-rolebinding
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kaito-workspace-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: kaito-workspace-sa
+  namespace: kaito-workspace
+
+---
+# Source: workspace/templates/inferenceset_clusterrole_binding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kaito-workspace-inferenceset-rolebinding
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kaito-workspace-inferenceset-clusterrole
+subjects:
+- kind: ServiceAccount
+  name: kaito-workspace-sa
+  namespace: kaito-workspace
+---
+# Source: workspace/charts/local-csi-driver/templates/certificate-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: csi-local-certificate-role
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+
+---
+# Source: workspace/charts/local-csi-driver/templates/manager-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: csi-local-manager-leader-election
+  namespace: kaito-workspace
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+
+---
+# Source: workspace/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kaito-workspace-role
+  namespace: kaito-workspace
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get","list","watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get","list","watch","create", "delete"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get","list","watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["update"]
+    resourceNames: ["workspace-webhook-cert"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "watch", "create"]
+
+---
+# Source: workspace/charts/local-csi-driver/templates/certificate-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: csi-local-certificate-binding
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: csi-local-certificate-role
+subjects:
+- kind: ServiceAccount
+  name: csi-local-manager
+  namespace: 'kaito-workspace'
+
+---
+# Source: workspace/charts/local-csi-driver/templates/manager-rbac.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: csi-local-manager-leader-election
+  namespace: kaito-workspace
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: csi-local-manager-leader-election
+subjects:
+- kind: ServiceAccount
+  name: csi-local-manager
+  namespace: kaito-workspace
+
+---
+# Source: workspace/templates/role_binding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kaito-workspace-rolebinding
+  namespace: kaito-workspace
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kaito-workspace-role
+subjects:
+- kind: ServiceAccount
+  name: kaito-workspace-sa
+  namespace: kaito-workspace
+
+---
+# Source: workspace/charts/local-csi-driver/templates/webhook-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: csi-local-webhook-service
+  labels:
+    app.kubernetes.io/component: webhook
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  selector:
+    app: csi-local-manager
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+
+---
+# Source: workspace/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: kaito-workspace-svc
+  namespace: kaito-workspace
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-metrics
+      port: 8080
+      targetPort: http-metrics
+      protocol: TCP
+    - name: https-webhook
+      port: 9443
+      targetPort: https-webhook
+      protocol: TCP
+  selector:
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+
+---
+# Source: workspace/charts/local-csi-driver/templates/daemonset.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: csi-local-node
+  namespace: 'kaito-workspace'
+  labels:
+    app: csi-local
+    app.kubernetes.io/component: csi-local-node
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  updateStrategy:
+    rollingUpdate:
+      maxUnavailable: 10%
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: csi-local-node
+  template:
+    metadata:
+      labels:
+        app: csi-local-node
+      annotations:
+        kubectl.kubernetes.io/default-container: driver
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            # Default mandatory constraints when no custom nodeAffinity provided
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+                - arm64
+
+      containers:
+      - name: driver
+        args:
+        - --node-name=$(NODE_NAME)
+        - --pod-name=$(POD_NAME)
+        - --pod-uid=$(POD_UID)
+        - --namespace=$(POD_NAMESPACE)
+        - --csi-bind-address=unix:///csi/csi.sock
+        - --worker-threads=100
+        - --kube-api-qps=100
+        - --kube-api-burst=200
+        - --metrics-bind-address=:8080
+        - --metrics-secure=false
+        - --health-probe-bind-address=:8081
+        - --trace-address=
+        - --trace-sample-rate=1000000
+        - --trace-service-id=$(POD_NAME)
+        - --v=2
+        - --enable-cleanup=true
+        - --enable-lv-garbage-collection=true
+        - --enable-lvm-orphan-cleanup=true
+        - --lvm-orphan-cleanup-interval=5m
+        - --volume-wipe-enabled=true
+        - --volume-wipe-interval=60s
+        - --volume-wipe-concurrency=1
+        - --run-alongside-webhook=true
+
+        - --disk-path-prefixes=
+        - --disk-models=
+        - --disk-types=
+        command:
+        - /local-csi-driver
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: "mcr.microsoft.com/acstor/local-csi-driver:v0.4.1"
+        imagePullPolicy: Always
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 600Mi
+          requests:
+            cpu: 10m
+            memory: 60Mi
+        securityContext:
+          privileged: true
+          capabilities:
+            drop:
+              - ALL
+        terminationMessagePath: /tmp/termination-log
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /dev
+          name: device
+        - mountPath: /csi
+          name: csi-socket-dir
+        - mountPath: /var/lib/kubelet/
+          mountPropagation: Bidirectional
+          name: mountpoint-dir
+
+      - name: csi-provisioner
+        args:
+        - --csi-address=/csi/csi.sock
+        - --node-deployment
+        - --http-endpoint=:8090
+        - --retry-interval-start=1s
+        - --retry-interval-max=30s
+        - --worker-threads=100
+        - --kube-api-qps=100
+        - --kube-api-burst=200
+        - --extra-create-metadata
+        - --feature-gates=Topology=true,VolumeAttributesClass=false
+        - --strict-topology=true
+        - --enable-capacity
+        - --capacity-ownerref-level=0
+        - --capacity-poll-interval=15s
+        - --v=2
+        env:
+        # POD_NAME and POD_NAMESPACE are used for capacity tracking support
+        # More info: https://github.com/kubernetes-csi/external-provisioner?tab=readme-ov-file#capacity-support
+        - name: NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: "mcr.microsoft.com/oss/v2/kubernetes-csi/csi-provisioner:v6.1.1"
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 1
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          tcpSocket:
+            port: provisioner
+          timeoutSeconds: 10
+        ports:
+        - containerPort: 8090
+          name: provisioner
+          protocol: TCP
+        resources:
+          limits:
+            memory: 500Mi
+          requests:
+            cpu: 10m
+            memory: 20Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - mountPath: /csi
+          name: csi-socket-dir
+
+      - name: csi-resizer
+        args:
+        - --csi-address=/csi/csi.sock
+        - --feature-gates=VolumeAttributesClass=false
+        - --timeout=240s
+        - --handle-volume-inuse-error=false
+        - --http-endpoint=:8091
+        - --v=2
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        image: "mcr.microsoft.com/oss/v2/kubernetes-csi/csi-resizer:v2.0.0"
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8091
+          name: resizer
+          protocol: TCP
+        resources:
+          limits:
+            memory: 500Mi
+          requests:
+            cpu: 10m
+            memory: 20Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - mountPath: /csi
+          name: csi-socket-dir
+
+      - name: csi-registrar
+        args:
+        - --csi-address=/csi/csi.sock
+        - --kubelet-registration-path=/var/lib/kubelet/plugins/localdisk.csi.acstor.io/csi.sock
+        - --http-endpoint=:8092
+        - --v=1
+        env:
+        image: "mcr.microsoft.com/oss/v2/kubernetes-csi/csi-node-driver-registrar:v2.18.0"
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 1
+          httpGet:
+            path: /healthz
+            port: registrar
+          initialDelaySeconds: 5
+          periodSeconds: 20
+          timeoutSeconds: 5
+        ports:
+        - containerPort: 8092
+          name: registrar
+          protocol: TCP
+        resources:
+          limits:
+            memory: 100Mi
+          requests:
+            cpu: 10m
+            memory: 20Mi
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+        - mountPath: /csi
+          name: csi-socket-dir
+        - mountPath: /registration
+          name: registration-dir
+
+      hostPID: true
+      nodeSelector:
+        {}
+      priorityClassName: system-node-critical
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: csi-local-node
+      terminationGracePeriodSeconds: 60
+      tolerations:
+        - effect: NoSchedule
+          operator: Exists
+        - effect: NoExecute
+          operator: Exists
+      volumes:
+      - hostPath:
+          path: /dev
+          type: Directory
+        name: device
+      - hostPath:
+          path: /var/lib/kubelet/plugins/localdisk.csi.acstor.io/
+          type: DirectoryOrCreate
+        name: csi-socket-dir
+      - hostPath:
+          path: /var/lib/kubelet/plugins_registry/
+          type: Directory
+        name: registration-dir
+      - hostPath:
+          path: /var/lib/kubelet/
+          type: DirectoryOrCreate
+        name: mountpoint-dir
+
+---
+# Source: workspace/templates/nvidia-device-plugin-ds.yaml
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: "nvidia-device-plugin-daemonset"
+  namespace: kaito-workspace
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      nodeSelector:
+        kubernetes.io/os: linux
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.azure.com/cluster
+                operator: Exists
+              - key: type
+                operator: NotIn
+                values:
+                - virtual-kubelet
+      tolerations:
+        # Allow this pod to be rescheduled while the node is in "critical add-ons only" mode.
+        # This, along with the annotation above marks this pod as a critical add-on.
+        - key: CriticalAddonsOnly
+          operator: Exists
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+        - key: "sku"
+          operator: "Equal"
+          value: "gpu"
+          effect: "NoSchedule"
+      priorityClassName: "system-node-critical"
+      containers:
+        - image: "mcr.microsoft.com/oss/v2/nvidia/k8s-device-plugin:v0.20.1-5"
+          imagePullPolicy: "IfNotPresent"
+          name: nvidia-device-plugin-ctr
+          env:
+            - name: FAIL_ON_INIT_ERROR
+              value: "false"
+            - name: PASS_DEVICE_SPECS
+              value: "true"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+
+---
+# Source: workspace/charts/local-csi-driver/templates/manager-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: csi-local-manager
+  labels:
+    app.kubernetes.io/component: webhook
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: csi-local-manager
+      app.kubernetes.io/name: local-csi-driver
+      app.kubernetes.io/instance: kaito-workspace
+  template:
+    metadata:
+      labels:
+        app: csi-local-manager
+        app.kubernetes.io/component: manager
+        app.kubernetes.io/name: local-csi-driver
+        app.kubernetes.io/instance: kaito-workspace
+      annotations:
+        checksum/config: 01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b
+        checksum/config2: 5035d553c83f0ba7bd1c5f970e34be5173e55c51f288a3c44963d2d679bf847d
+    spec:
+      serviceAccountName: csi-local-manager
+      containers:
+      - name: manager
+        image: "mcr.microsoft.com/acstor/local-csi-manager:v0.4.1"
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 9443
+          name: webhook-api
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        args:
+        - --namespace=$(POD_NAMESPACE)
+        - --health-probe-bind-address=:8081
+        - --metrics-bind-address=:8080
+        - --webhook-port=9443
+        - --webhook-service-name=csi-local-webhook-service
+        - --kube-api-qps=100
+        - --kube-api-burst=200
+        - --v=2
+        - --enable-pv-cleanup=true
+        - --hyperconverged-webhook-config=csi-local-hyperconverged-webhook
+        - --certificate-secret-name=csi-local-webhook-cert
+        env:
+        - name: WEBHOOK_CERT_DIR
+          value: /tmp/k8s-webhook-server/serving-certs
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 500Mi
+          requests:
+            cpu: 10m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        terminationMessagePath: /tmp/termination-log
+        terminationMessagePolicy: FallbackToLogsOnError
+        volumeMounts:
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: kubernetes.azure.com/mode
+                operator: In
+                values:
+                - system
+            weight: 90
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: kubernetes.io/os
+                operator: In
+                values:
+                - linux
+              - key: kubernetes.io/arch
+                operator: In
+                values:
+                - amd64
+                - arm64
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values:
+                  - webhook
+              topologyKey: kubernetes.io/hostname
+            weight: 100
+      tolerations:
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/master
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/controlplane
+        operator: Exists
+      - effect: NoSchedule
+        key: node-role.kubernetes.io/control-plane
+        operator: Exists
+      - effect: NoSchedule
+        key: CriticalAddonsOnly
+        operator: Exists
+      - effect: NoExecute
+        key: CriticalAddonsOnly
+        operator: Exists
+      volumes:
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: csi-local-webhook-cert
+
+---
+# Source: workspace/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kaito-workspace
+  namespace: kaito-workspace
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      
+      app.kubernetes.io/name: workspace
+      app.kubernetes.io/instance: kaito-workspace
+  strategy:
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        
+        app.kubernetes.io/name: workspace
+        app.kubernetes.io/instance: kaito-workspace
+    spec:
+      serviceAccountName: kaito-workspace-sa
+      securityContext:
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: workspace
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+          image: "mcr.microsoft.com/aks/kaito/workspace:0.13.0"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --feature-gates=ModelMirror=false,ModelStreaming=false,disableNodeAutoProvisioning=true,enableAccelerator=false,enableBaseImageAutoUpgrade=false,enableEPPFlowControl=false,enableInferenceSetController=true,enableMIG=false,enableMultiRoleInferenceController=false,gatewayAPIInferenceExtension=false,vLLM=true
+            - --node-provisioner=byo
+          env:
+            - name: CONFIG_LOGGING_NAME
+              value: "kaito-logging-config"
+            - name: WEBHOOK_SERVICE
+              value: "kaito-workspace-svc"
+            - name: WEBHOOK_PORT
+              value: "9443"
+            - name: SYSTEM_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PRESET_REGISTRY_NAME
+              value: "mcr.microsoft.com/aks/kaito"
+            - name: CLOUD_PROVIDER
+              value: "azure"
+            - name: CLUSTER_NAME
+              value: "kaito"
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: https-webhook
+              containerPort: 9443
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+      nodeSelector:
+        kubernetes.io/os: linux
+      priorityClassName: system-cluster-critical
+
+---
+# Source: workspace/charts/local-csi-driver/templates/webhook-config-hyperconverged.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: csi-local-hyperconverged-webhook
+  labels:
+    helm.sh/chart: local-csi-driver-0.4.1
+    app.kubernetes.io/name: local-csi-driver
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "v0.4.1"
+    app.kubernetes.io/managed-by: Helm
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: csi-local-webhook-service
+      namespace: 'kaito-workspace'
+      path: /mutate-pod
+  failurePolicy: Ignore
+  name: hyperconverged.localdisk.csi.acstor.io
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
+
+---
+# Source: workspace/templates/webhooks.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validation.workspace.kaito.sh
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+webhooks:
+  - name: validation.workspace.kaito.sh
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: kaito-workspace-svc
+        namespace: kaito-workspace
+        port: 9443
+    failurePolicy: Fail
+    sideEffects: None
+    rules:
+      - apiGroups:
+          - kaito.sh
+        apiVersions:
+          - v1alpha1
+          - v1beta1
+        resources:
+          - workspaces
+        operations:
+          - CREATE
+          - UPDATE
+
+---
+# Source: workspace/templates/webhooks.yaml
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: validation.inferenceset.kaito.sh
+  labels:
+    
+    helm.sh/chart: workspace-0.13.0
+    app.kubernetes.io/created-by: workspace-0.13.0
+    
+    app.kubernetes.io/name: workspace
+    app.kubernetes.io/instance: kaito-workspace
+    app.kubernetes.io/version: "0.13.0"
+    app.kubernetes.io/managed-by: Helm
+webhooks:
+  - name: validation.inferenceset.kaito.sh
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: kaito-workspace-svc
+        namespace: kaito-workspace
+        port: 9443
+    failurePolicy: Fail
+    sideEffects: None
+    rules:
+      - apiGroups:
+          - kaito.sh
+        apiVersions:
+          - v1alpha1
+        resources:
+          - inferencesets
+        operations:
+          - CREATE
+          - UPDATE

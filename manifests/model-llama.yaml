@@ -1,0 +1,32 @@
+apiVersion: airunway.ai/v1alpha1
+kind: ModelDeployment
+metadata:
+  name: llama3-2-1b-6atz
+  namespace: kaito-workspace
+  labels:
+    app.kubernetes.io/name: airunway
+    app.kubernetes.io/instance: llama3-2-1b-6atz
+    app.kubernetes.io/managed-by: airunway
+spec:
+  model:
+    id: llama3.2:1b
+    source: huggingface
+  gateway:
+    enabled: true
+  engine:
+    type: llamacpp
+    trustRemoteCode: false
+    enablePrefixCaching: true
+    enforceEager: true
+  serving:
+    mode: aggregated
+  image: ghcr.io/kaito-project/aikit/llama3.2:1b
+  provider:
+    name: kaito
+  scaling:
+    replicas: 1
+  resources:
+    gpu:
+      count: 0
+      type: nvidia.com/gpu
+
