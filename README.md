@@ -17,6 +17,8 @@ $ curl --silent http://192.168.122.200/v1/chat/completions \
 "Hello! 👋  How can I help you today? 😊  \n"
 ```
 
+![chat](./pics/chat.png)
+
 ## How to use it
 
 Requirements:
@@ -47,6 +49,8 @@ With this command, you will:
 * deploy AI Runway as an AI Manager
 * deploy two small models with Gateway API Inference Extension enabled
 
+![deployment](./pics/deployment.png)
+
 ### Usage
 
 Find the Gateway API endpoint:
@@ -58,3 +62,5 @@ or use the dashboard directly:
 ```
 $ make ai-manager-dashboard
 ```
+
+![access](./pics/access.png)
